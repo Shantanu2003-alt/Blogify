@@ -2,3 +2,9 @@ streamlit
 textblob
 spacy
 fpdf
+fuzzywuzzy
+python-Levenshtein
+# Install the spaCy model after installing packages
+# The following line is a comment and will not be executed by pip
+# Run this manually or add to a post-install shell script:
+# python -m spacy download en_core_web_sm
