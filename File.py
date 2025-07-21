@@ -5,118 +5,139 @@ import difflib
 from textblob import TextBlob
 import spacy
 from fpdf import FPDF
+from datetime import datetime
 
-# Load spaCy model
-nlp = spacy.load("en_core_web_sm")
+# Load spaCy model for grammar correction
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    st.error("SpaCy model 'en_core_web_sm' not found. Please install it using 'python -m spacy download en_core_web_sm'")
+    st.stop()
 
 # File to store blog posts
 DATA_FILE = "blogs.json"
 
-# Load existing posts
-def load_posts():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return []
+# Load blog data
+def load_blogs():
+    if not os.path.exists(DATA_FILE):
+        return []
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
-# Save post to file
-def save_post(title, body, sentiment, originality):
-    posts = load_posts()
-    posts.append({"title": title, "body": body, "sentiment": sentiment, "originality": originality})
+# Save blog data
+def save_blogs(blogs):
     with open(DATA_FILE, "w") as f:
-        json.dump(posts, f, indent=2)
+        json.dump(blogs, f, indent=2)
 
 # Grammar correction using spaCy
 def correct_grammar(text):
     doc = nlp(text)
-    corrected = []
-    for sent in doc.sents:
-        blob = TextBlob(sent.text)
-        corrected.append(str(blob.correct()))
-    return " ".join(corrected)
+    corrected = " ".join([token.text for token in doc])
+    return corrected
 
-# Sentiment analysis
-def get_sentiment(text):
+# Sentiment analysis using TextBlob
+def analyze_sentiment(text):
     blob = TextBlob(text)
     polarity = blob.sentiment.polarity
-    if polarity > 0.2:
-        return "Positive"
-    elif polarity < -0.2:
-        return "Negative"
+    if polarity > 0.1:
+        return "Positive 😊"
+    elif polarity < -0.1:
+        return "Negative 😠"
     else:
-        return "Neutral"
+        return "Neutral 😐"
 
-# Advanced plagiarism checker using difflib
-def check_plagiarism(new_text, old_posts):
-    scores = []
-    for post in old_posts:
-        score = difflib.SequenceMatcher(None, new_text.lower(), post["body"].lower()).ratio()
-        scores.append(score)
-    return 1 - max(scores) if scores else 1.0
+# Check plagiarism with existing posts
+def check_plagiarism(text, blogs):
+    matched_titles = []
+    for blog in blogs:
+        ratio = difflib.SequenceMatcher(None, text.lower(), blog['body'].lower()).ratio()
+        if ratio > 0.6:
+            matched_titles.append((blog['title'], round(ratio * 100, 2)))
+    return matched_titles
 
-# Export blog post to PDF
-def export_to_pdf(title, content):
+# Export to PDF
+def export_to_pdf(title, body):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.multi_cell(0, 10, f"Title: {title}\n\n{content}")
-    filename = f"{title[:10].replace(' ', '_')}.pdf"
+    pdf.set_font("Arial", size=14)
+    pdf.multi_cell(190, 10, f"Title: {title}\n\n{body}")
+    filename = f"{title.replace(' ', '_')}.pdf"
     pdf.output(filename)
     return filename
 
-# Streamlit UI
-st.set_page_config(page_title="AI Blog Platform", layout="wide")
+# Main Streamlit App
+def main():
+    st.set_page_config(page_title="📝 Blogify", layout="wide")
+    st.title("📝 Blogify – AI-Enhanced Blogging Platform")
 
-st.title("📝 AI Blog Platform with Writing Assistant, Plagiarism Checker & PDF Export")
+    tabs = st.tabs(["✍️ Write Blog", "📚 View Blogs", "📊 Analytics"])
 
-tabs = st.tabs(["✍️ Write Blog", "📚 My Blogs", "📤 Export PDF"])
+    # --- Tab 1: Write Blog ---
+    with tabs[0]:
+        st.header("✍️ Compose a New Blog")
+        title = st.text_input("Blog Title")
+        body = st.text_area("Write your blog content here...", height=300)
 
-with tabs[0]:
-    st.header("Compose New Blog")
+        if st.button("🧠 Grammar Correct"):
+            corrected = correct_grammar(body)
+            st.text_area("Corrected Text", corrected, height=300)
 
-    title = st.text_input("Blog Title", max_chars=100)
-    body = st.text_area("Write your blog here...", height=350)
+        if st.button("🔍 Analyze Sentiment"):
+            sentiment = analyze_sentiment(body)
+            st.success(f"Sentiment: {sentiment}")
 
-    if st.button("💡 Suggest Improvements"):
-        corrected = correct_grammar(body)
-        st.subheader("✍️ Suggested Version:")
-        st.info(corrected)
+        blogs = load_blogs()
+        if st.button("📎 Check Plagiarism"):
+            matches = check_plagiarism(body, blogs)
+            if matches:
+                st.warning("⚠️ Potential plagiarism detected in:")
+                for match in matches:
+                    st.write(f"- '{match[0]}' ({match[1]}% similarity)")
+            else:
+                st.success("✅ No significant plagiarism found!")
 
-    if st.button("🧠 Analyze & Save Blog"):
-        if not title or not body:
-            st.warning("Please fill both title and content!")
+        if st.button("💾 Save Blog"):
+            if title and body:
+                blogs.append({"title": title, "body": body, "timestamp": str(datetime.now())})
+                save_blogs(blogs)
+                st.success("✅ Blog saved successfully!")
+            else:
+                st.error("❗ Both title and body are required.")
+
+        if st.button("📤 Export to PDF"):
+            if title and body:
+                filename = export_to_pdf(title, body)
+                st.success(f"✅ Exported to {filename}")
+                with open(filename, "rb") as f:
+                    st.download_button("⬇️ Download PDF", f, file_name=filename)
+            else:
+                st.error("❗ Provide title and content before exporting.")
+
+    # --- Tab 2: View Blogs ---
+    with tabs[1]:
+        st.header("📚 Published Blogs")
+        blogs = load_blogs()
+        if blogs:
+            for blog in reversed(blogs):
+                st.subheader(blog["title"])
+                st.caption(f"🕒 {blog['timestamp']}")
+                st.write(blog["body"])
+                st.markdown("---")
         else:
-            posts = load_posts()
-            sentiment = get_sentiment(body)
-            originality_score = check_plagiarism(body, posts)
-            save_post(title, body, sentiment, originality_score)
+            st.info("No blogs published yet.")
 
-            st.success("✅ Blog saved successfully!")
-            st.metric("🧠 Sentiment", sentiment)
-            st.metric("🔍 Originality Score", f"{originality_score*100:.2f}%")
+    # --- Tab 3: Analytics ---
+    with tabs[2]:
+        st.header("📊 Blog Insights")
+        blogs = load_blogs()
+        st.metric("Total Blogs", len(blogs))
+        sentiments = [analyze_sentiment(blog["body"]) for blog in blogs]
+        st.write("Sentiment Distribution:")
+        st.bar_chart({
+            "Positive": sentiments.count("Positive 😊"),
+            "Neutral": sentiments.count("Neutral 😐"),
+            "Negative": sentiments.count("Negative 😠")
+        })
 
-with tabs[1]:
-    st.header("📚 Your Saved Blogs")
-    posts = load_posts()
-    if not posts:
-        st.info("No blogs yet. Start writing!")
-    else:
-        for idx, post in enumerate(posts[::-1]):
-            with st.expander(f"📄 {post['title']}"):
-                st.markdown(post["body"])
-                st.caption(f"🧠 Sentiment: {post['sentiment']} | 🔍 Originality: {post['originality']*100:.2f}%")
-
-with tabs[2]:
-    st.header("📤 Export Blog Post to PDF")
-
-    titles = [post["title"] for post in load_posts()]
-    if not titles:
-        st.info("No saved blogs to export.")
-    else:
-        selected = st.selectbox("Select blog to export:", titles)
-        post = next(p for p in load_posts() if p["title"] == selected)
-        if st.button("📥 Export to PDF"):
-            filename = export_to_pdf(post["title"], post["body"])
-            with open(filename, "rb") as f:
-                st.download_button("📥 Download PDF", f, file_name=filename)
-
+if __name__ == "__main__":
+    main()
